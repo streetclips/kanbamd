@@ -98,9 +98,14 @@ Filesystem metadata is exposed as `createdAt` and `updatedAt`.
 ```sh
 bun run release fix
 bun run release minor
-bun run release preminor --preid beta --tag beta
+bun run release preminor --preid beta
 ```
 
-The release script checks that the working tree is clean, runs lint/typecheck/tests, updates the
-package version, builds `dist`, and publishes to npm. Use `--dry-run` to verify the npm package
-without publishing.
+The release script checks that the working tree is clean, switches to `dev`, runs
+lint/typecheck/tests, updates the package version, builds `dist`, commits the version bump, merges
+`dev` into `main`, and pushes `main`. The `main` push triggers the GitHub Actions release workflow,
+which publishes to npm with the `NPM_TOKEN` repository secret and creates a GitHub Release.
+
+Prerelease versions publish with the prerelease identifier as the npm dist-tag, such as `beta` for
+`1.1.0-beta.0`; stable versions publish as `latest`. Use `--dry-run` to validate the version bump
+and build without committing, merging, or publishing.

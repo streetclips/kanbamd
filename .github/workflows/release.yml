@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: |
+          bun run lint
+          bun run typecheck
+          bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Read package version
+        id: package
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          RELEASE_TAG="v${VERSION}"
+          NPM_TAG="latest"
+
+          if [[ "${VERSION}" == *-* ]]; then
+            PRERELEASE="${VERSION#*-}"
+            NPM_TAG="${PRERELEASE%%.*}"
+          fi
+
+          if git tag --list "${RELEASE_TAG}" | grep -q "^${RELEASE_TAG}$"; then
+            EXISTS="true"
+          else
+            EXISTS="false"
+          fi
+
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            PUBLISHED="true"
+          else
+            PUBLISHED="false"
+          fi
+
+          echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${NPM_TAG}" >> "$GITHUB_OUTPUT"
+          echo "exists=${EXISTS}" >> "$GITHUB_OUTPUT"
+          echo "published=${PUBLISHED}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        if: steps.package.outputs.published == 'false'
+        run: npm publish --access public --tag "${{ steps.package.outputs.npm_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skip existing npm version
+        if: steps.package.outputs.published == 'true'
+        run: echo "${{ steps.package.outputs.package_name }}@${{ steps.package.outputs.version }} is already published; skipping npm publish."
+
+      - name: Create GitHub Release
+        if: steps.package.outputs.exists == 'false'
+        run: gh release create "${{ steps.package.outputs.release_tag }}" --title "${{ steps.package.outputs.release_tag }}" --notes "Release ${{ steps.package.outputs.release_tag }}" --target "$GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Skip existing release
+        if: steps.package.outputs.exists == 'true'
+        run: echo "Release ${{ steps.package.outputs.release_tag }} already exists; skipping GitHub Release creation."

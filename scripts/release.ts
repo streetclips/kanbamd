@@ -16,10 +16,9 @@ type Options = {
   allowDirty: boolean
   skipChecks: boolean
   noPush: boolean
-  tag?: string
-  otp?: string
-  access: "public" | "restricted"
   preid: string
+  sourceBranch: string
+  targetBranch: string
 }
 
 type PackageJson = {
@@ -48,9 +47,19 @@ main().catch((error: unknown) => {
 
 async function main(): Promise<void> {
   const { releaseType, options } = parseArgs(args)
+  const originalBranch = getCurrentBranch()
 
   if (!options.allowDirty) {
     assertCleanWorkingTree()
+  }
+
+  if (options.sourceBranch === options.targetBranch) {
+    throw new Error("Source and target branches must be different.")
+  }
+
+  if (!options.dryRun) {
+    checkoutBranch(options.sourceBranch)
+    pullBranch(options.sourceBranch)
   }
 
   if (!options.skipChecks) {
@@ -69,22 +78,6 @@ async function main(): Promise<void> {
 
   try {
     run("bun", ["run", "build"])
-
-    const publishArgs = ["publish", "--access", options.access]
-
-    if (options.tag) {
-      publishArgs.push("--tag", options.tag)
-    }
-
-    if (options.otp) {
-      publishArgs.push("--otp", options.otp)
-    }
-
-    if (options.dryRun) {
-      publishArgs.push("--dry-run")
-    }
-
-    run("npm", publishArgs)
   } catch (error) {
     packageJson.version = previousVersion
     await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
@@ -92,13 +85,41 @@ async function main(): Promise<void> {
     throw error
   }
 
-  if (!options.dryRun) {
-    run("git", ["add", "package.json"])
-    run("git", ["commit", "-m", `Release v${nextVersion}`])
+  if (options.dryRun) {
+    packageJson.version = previousVersion
+    await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
+    console.log("Dry run complete. Restored package.json.")
+    return
+  }
 
-    if (!options.noPush) {
-      run("git", ["push"])
-    }
+  run("git", ["add", "package.json"])
+  run("git", ["commit", "-m", `Release v${nextVersion}`])
+
+  if (!options.noPush) {
+    run("git", ["push", "origin", options.sourceBranch])
+  }
+
+  checkoutBranch(options.targetBranch)
+  pullBranch(options.targetBranch)
+  run("git", [
+    "merge",
+    "--no-ff",
+    options.sourceBranch,
+    "-m",
+    `Merge ${options.sourceBranch} into ${options.targetBranch} for v${nextVersion}`,
+  ])
+
+  if (!options.noPush) {
+    run("git", ["push", "origin", options.targetBranch])
+    console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
+  } else {
+    console.log(
+      `Merged locally into ${options.targetBranch}. Push it to trigger the release workflow.`,
+    )
+  }
+
+  if (originalBranch !== options.targetBranch) {
+    console.log(`Release finished on ${options.targetBranch}; started on ${originalBranch}.`)
   }
 }
 
@@ -119,8 +140,9 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
     allowDirty: false,
     skipChecks: false,
     noPush: false,
-    access: "public",
     preid: "next",
+    sourceBranch: "dev",
+    targetBranch: "main",
   }
 
   for (let index = 0; index < rawOptions.length; index += 1) {
@@ -146,30 +168,20 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
       continue
     }
 
-    if (option === "--tag") {
-      options.tag = readOptionValue(rawOptions, index, option)
-      index += 1
-      continue
-    }
-
-    if (option === "--otp") {
-      options.otp = readOptionValue(rawOptions, index, option)
-      index += 1
-      continue
-    }
-
-    if (option === "--access") {
-      const access = readOptionValue(rawOptions, index, option)
-      if (access !== "public" && access !== "restricted") {
-        throw new Error("--access must be either public or restricted")
-      }
-      options.access = access
-      index += 1
-      continue
-    }
-
     if (option === "--preid") {
       options.preid = readOptionValue(rawOptions, index, option)
+      index += 1
+      continue
+    }
+
+    if (option === "--source-branch") {
+      options.sourceBranch = readOptionValue(rawOptions, index, option)
+      index += 1
+      continue
+    }
+
+    if (option === "--target-branch") {
+      options.targetBranch = readOptionValue(rawOptions, index, option)
       index += 1
       continue
     }
@@ -277,6 +289,61 @@ function assertCleanWorkingTree(): void {
   }
 }
 
+function getCurrentBranch(): string {
+  return readGit(["branch", "--show-current"]) || "HEAD"
+}
+
+function checkoutBranch(branch: string): void {
+  if (branchExists(branch)) {
+    run("git", ["checkout", branch])
+    return
+  }
+
+  if (remoteBranchExists(branch)) {
+    run("git", ["checkout", "-b", branch, `origin/${branch}`])
+    return
+  }
+
+  throw new Error(`Branch not found: ${branch}`)
+}
+
+function pullBranch(branch: string): void {
+  if (remoteBranchExists(branch)) {
+    run("git", ["pull", "--ff-only", "origin", branch])
+  }
+}
+
+function branchExists(branch: string): boolean {
+  return gitSucceeds(["rev-parse", "--verify", `refs/heads/${branch}`])
+}
+
+function remoteBranchExists(branch: string): boolean {
+  return gitSucceeds(["rev-parse", "--verify", `refs/remotes/origin/${branch}`])
+}
+
+function readGit(args: string[]): string {
+  const result = spawnSync("git", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: false,
+  })
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `Command failed: git ${args.join(" ")}`)
+  }
+
+  return result.stdout.trim()
+}
+
+function gitSucceeds(args: string[]): boolean {
+  const result = spawnSync("git", args, {
+    stdio: "ignore",
+    shell: false,
+  })
+
+  return result.status === 0
+}
+
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, {
     stdio: "inherit",
@@ -293,19 +360,20 @@ function printHelp(): void {
   bun run release <major|minor|patch|fix|premajor|preminor|prepatch|prerelease> [options]
 
 Options:
-  --dry-run          Run npm publish with --dry-run.
-  --tag <tag>        Publish with an npm dist-tag.
-  --otp <code>       Pass a one-time password to npm publish.
-  --access <value>   public or restricted. Defaults to public.
+  --dry-run          Validate the version bump and build without committing or merging.
   --preid <id>       Prerelease identifier. Defaults to next.
   --skip-checks      Skip lint, typecheck, and test.
-  --allow-dirty      Allow publishing from a dirty working tree.
-  --no-push          Commit the published version without pushing.
+  --allow-dirty      Allow releasing from a dirty working tree.
+  --no-push          Commit and merge locally without pushing.
+  --source-branch <branch>
+                     Branch to release from. Defaults to dev.
+  --target-branch <branch>
+                     Branch that triggers publishing. Defaults to main.
 
 Examples:
   bun run release fix
-  bun run release minor --tag latest
-  bun run release preminor --preid beta --tag beta
+  bun run release minor
+  bun run release preminor --preid beta
   bun run release patch --dry-run
 `)
 }
