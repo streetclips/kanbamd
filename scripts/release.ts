@@ -13,11 +13,8 @@ type ReleaseType =
 
 type Options = {
   dryRun: boolean
-  allowDirty: boolean
   skipChecks: boolean
-  noPush: boolean
   preid: string
-  sourceBranch: string
   targetBranch: string
 }
 
@@ -47,20 +44,16 @@ main().catch((error: unknown) => {
 
 async function main(): Promise<void> {
   const { releaseType, options } = parseArgs(args)
-  const originalBranch = getCurrentBranch()
+  const releaseBranch = "dev"
+  const currentBranch = getCurrentBranch()
 
-  if (!options.allowDirty) {
-    assertCleanWorkingTree()
+  if (currentBranch !== releaseBranch) {
+    throw new Error(
+      `Release must be run from ${releaseBranch}; current branch is ${currentBranch}.`,
+    )
   }
 
-  if (options.sourceBranch === options.targetBranch) {
-    throw new Error("Source and target branches must be different.")
-  }
-
-  if (!options.dryRun) {
-    checkoutBranch(options.sourceBranch)
-    pullBranch(options.sourceBranch)
-  }
+  assertCleanWorkingTree()
 
   if (!options.skipChecks) {
     run("bun", ["run", "lint"])
@@ -68,59 +61,45 @@ async function main(): Promise<void> {
     run("bun", ["run", "test"])
   }
 
-  const packageJson = await readPackageJson()
+  const originalPackageJson = await readFile("package.json", "utf8")
+  const packageJson = JSON.parse(originalPackageJson) as PackageJson
   const previousVersion = packageJson.version
   const nextVersion = bumpVersion(previousVersion, releaseType, options.preid)
   packageJson.version = nextVersion
 
-  await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
-  console.log(`${packageJson.name}: ${previousVersion} -> ${nextVersion}`)
-
+  let shouldRollbackPackageJson = true
+  let didStagePackageJson = false
   try {
-    run("bun", ["run", "build"])
-  } catch (error) {
-    packageJson.version = previousVersion
     await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
-    console.error(`Restored package version to ${previousVersion}.`)
+    console.log(`${packageJson.name}: ${previousVersion} -> ${nextVersion}`)
+
+    run("bun", ["run", "build"])
+
+    if (options.dryRun) {
+      await restorePackageJson(originalPackageJson)
+      shouldRollbackPackageJson = false
+      console.log("Dry run complete. Restored package.json.")
+      return
+    }
+
+    run("git", ["add", "package.json"])
+    didStagePackageJson = true
+    run("git", ["commit", "-m", `[dev] bump version ${nextVersion}`])
+    shouldRollbackPackageJson = false
+  } catch (error) {
+    if (shouldRollbackPackageJson) {
+      await rollbackPackageJson(originalPackageJson, previousVersion, didStagePackageJson)
+    }
     throw error
   }
 
-  if (options.dryRun) {
-    packageJson.version = previousVersion
-    await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
-    console.log("Dry run complete. Restored package.json.")
-    return
-  }
-
-  run("git", ["add", "package.json"])
-  run("git", ["commit", "-m", `Release v${nextVersion}`])
-
-  if (!options.noPush) {
-    run("git", ["push", "origin", options.sourceBranch])
-  }
+  run("git", ["push", "origin", releaseBranch])
 
   checkoutBranch(options.targetBranch)
-  pullBranch(options.targetBranch)
-  run("git", [
-    "merge",
-    "--no-ff",
-    options.sourceBranch,
-    "-m",
-    `Merge ${options.sourceBranch} into ${options.targetBranch} for v${nextVersion}`,
-  ])
+  run("git", ["merge", "--no-ff", releaseBranch, "-m", `[dev] release ${nextVersion}`])
 
-  if (!options.noPush) {
-    run("git", ["push", "origin", options.targetBranch])
-    console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
-  } else {
-    console.log(
-      `Merged locally into ${options.targetBranch}. Push it to trigger the release workflow.`,
-    )
-  }
-
-  if (originalBranch !== options.targetBranch) {
-    console.log(`Release finished on ${options.targetBranch}; started on ${originalBranch}.`)
-  }
+  run("git", ["push", "origin", options.targetBranch])
+  console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
 }
 
 function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; options: Options } {
@@ -137,11 +116,8 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
 
   const options: Options = {
     dryRun: false,
-    allowDirty: false,
     skipChecks: false,
-    noPush: false,
     preid: "next",
-    sourceBranch: "dev",
     targetBranch: "main",
   }
 
@@ -153,29 +129,13 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
       continue
     }
 
-    if (option === "--allow-dirty") {
-      options.allowDirty = true
-      continue
-    }
-
     if (option === "--skip-checks") {
       options.skipChecks = true
       continue
     }
 
-    if (option === "--no-push") {
-      options.noPush = true
-      continue
-    }
-
     if (option === "--preid") {
       options.preid = readOptionValue(rawOptions, index, option)
-      index += 1
-      continue
-    }
-
-    if (option === "--source-branch") {
-      options.sourceBranch = readOptionValue(rawOptions, index, option)
       index += 1
       continue
     }
@@ -205,8 +165,20 @@ function readOptionValue(options: string[], index: number, name: string): string
   return value
 }
 
-async function readPackageJson(): Promise<PackageJson> {
-  return JSON.parse(await readFile("package.json", "utf8")) as PackageJson
+async function restorePackageJson(originalPackageJson: string): Promise<void> {
+  await writeFile("package.json", originalPackageJson, "utf8")
+}
+
+async function rollbackPackageJson(
+  originalPackageJson: string,
+  previousVersion: string,
+  restage: boolean,
+): Promise<void> {
+  await restorePackageJson(originalPackageJson)
+  if (restage) {
+    run("git", ["add", "package.json"])
+  }
+  console.error(`Restored package version to ${previousVersion}.`)
 }
 
 function bumpVersion(
@@ -285,7 +257,7 @@ function assertCleanWorkingTree(): void {
   }
 
   if (result.stdout.trim()) {
-    throw new Error("Working tree is not clean. Commit changes or pass --allow-dirty.")
+    throw new Error("Working tree is not clean. Commit or stash changes before releasing.")
   }
 }
 
@@ -363,10 +335,6 @@ Options:
   --dry-run          Validate the version bump and build without committing or merging.
   --preid <id>       Prerelease identifier. Defaults to next.
   --skip-checks      Skip lint, typecheck, and test.
-  --allow-dirty      Allow releasing from a dirty working tree.
-  --no-push          Commit and merge locally without pushing.
-  --source-branch <branch>
-                     Branch to release from. Defaults to dev.
   --target-branch <branch>
                      Branch that triggers publishing. Defaults to main.
 
