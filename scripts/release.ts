@@ -66,23 +66,30 @@ async function main(): Promise<void> {
   await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
   console.log(`${packageJson.name}: ${previousVersion} -> ${nextVersion}`)
 
-  run("bun", ["run", "build"])
+  try {
+    run("bun", ["run", "build"])
 
-  const publishArgs = ["publish", "--access", options.access]
+    const publishArgs = ["publish", "--access", options.access]
 
-  if (options.tag) {
-    publishArgs.push("--tag", options.tag)
+    if (options.tag) {
+      publishArgs.push("--tag", options.tag)
+    }
+
+    if (options.otp) {
+      publishArgs.push("--otp", options.otp)
+    }
+
+    if (options.dryRun) {
+      publishArgs.push("--dry-run")
+    }
+
+    run("npm", publishArgs)
+  } catch (error) {
+    packageJson.version = previousVersion
+    await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
+    console.error(`Restored package version to ${previousVersion}.`)
+    throw error
   }
-
-  if (options.otp) {
-    publishArgs.push("--otp", options.otp)
-  }
-
-  if (options.dryRun) {
-    publishArgs.push("--dry-run")
-  }
-
-  run("npm", publishArgs)
 }
 
 function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; options: Options } {
