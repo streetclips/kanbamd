@@ -92,3 +92,15 @@ These fields are managed by Kanbamd and cannot be provided through custom frontm
 - `order`
 
 Filesystem metadata is exposed as `createdAt` and `updatedAt`.
+
+## Release
+
+```sh
+bun run release fix
+bun run release minor
+bun run release preminor --preid beta --tag beta
+```
+
+The release script checks that the working tree is clean, runs lint/typecheck/tests, updates the
+package version, builds `dist`, and publishes to npm. Use `--dry-run` to verify the npm package
+without publishing.

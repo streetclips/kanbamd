@@ -10,9 +10,10 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src",
+    "baseUrl": ".",
     "paths": {
-      "@src/*": ["./src/*"],
-      "@test/*": ["./test/*"]
+      "@src/*": ["./src/*.ts"],
+      "@test/*": ["./test/*.ts"]
     },
     "skipLibCheck": true
   },

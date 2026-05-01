@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "include": ["src/**/*.ts", "test/**/*.ts", "*.ts"],
+    "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "*.ts"],
     "ignore": ["node_modules", "dist", "tmp"]
   },
   "formatter": {
