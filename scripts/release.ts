@@ -95,11 +95,15 @@ async function main(): Promise<void> {
 
   run("git", ["push", "origin", releaseBranch])
 
-  checkoutBranch(options.targetBranch)
-  run("git", ["merge", "--no-ff", releaseBranch, "-m", `[dev] release ${nextVersion}`])
+  try {
+    checkoutBranch(options.targetBranch)
+    run("git", ["merge", "--no-ff", releaseBranch, "-m", `[dev] release ${nextVersion}`])
 
-  run("git", ["push", "origin", options.targetBranch])
-  console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
+    run("git", ["push", "origin", options.targetBranch])
+    console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
+  } finally {
+    checkoutBranch(releaseBranch)
+  }
 }
 
 function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; options: Options } {
