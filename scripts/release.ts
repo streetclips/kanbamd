@@ -15,6 +15,7 @@ type Options = {
   dryRun: boolean
   allowDirty: boolean
   skipChecks: boolean
+  noPush: boolean
   tag?: string
   otp?: string
   access: "public" | "restricted"
@@ -90,6 +91,15 @@ async function main(): Promise<void> {
     console.error(`Restored package version to ${previousVersion}.`)
     throw error
   }
+
+  if (!options.dryRun) {
+    run("git", ["add", "package.json"])
+    run("git", ["commit", "-m", `Release v${nextVersion}`])
+
+    if (!options.noPush) {
+      run("git", ["push"])
+    }
+  }
 }
 
 function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; options: Options } {
@@ -108,6 +118,7 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
     dryRun: false,
     allowDirty: false,
     skipChecks: false,
+    noPush: false,
     access: "public",
     preid: "next",
   }
@@ -127,6 +138,11 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
 
     if (option === "--skip-checks") {
       options.skipChecks = true
+      continue
+    }
+
+    if (option === "--no-push") {
+      options.noPush = true
       continue
     }
 
@@ -284,6 +300,7 @@ Options:
   --preid <id>       Prerelease identifier. Defaults to next.
   --skip-checks      Skip lint, typecheck, and test.
   --allow-dirty      Allow publishing from a dirty working tree.
+  --no-push          Commit the published version without pushing.
 
 Examples:
   bun run release fix
