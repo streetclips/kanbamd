@@ -97,7 +97,13 @@ async function main(): Promise<void> {
 
   try {
     checkoutBranch(options.targetBranch)
-    run("git", ["merge", "--no-ff", releaseBranch, "-m", `[dev] release ${nextVersion}`])
+    run("git", [
+      "merge",
+      "--no-ff",
+      releaseBranch,
+      "-m",
+      `[${options.targetBranch}] release ${nextVersion}`,
+    ])
 
     run("git", ["push", "origin", options.targetBranch])
     console.log(`Pushed ${options.targetBranch}. GitHub Actions will publish v${nextVersion}.`)
