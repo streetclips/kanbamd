@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { BoardRootNotFoundError, CardNotFoundError } from "./errors.js"
+import { BoardRootNotFoundError, CardNotFoundError } from "#src/errors"
 
 export type StoredFile = {
   content: string

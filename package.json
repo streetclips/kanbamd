@@ -11,6 +11,12 @@
       "import": "./dist/index.js"
     }
   },
+  "imports": {
+    "#src/*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
   "files": [
     "dist"
   ],
