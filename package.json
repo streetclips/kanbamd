@@ -1,6 +1,6 @@
 {
   "name": "@alejandrocantero/kanbamd",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Manage Kanban boards backed by Markdown files, frontmatter, and column folders.",
   "type": "module",
   "main": "./dist/index.js",
