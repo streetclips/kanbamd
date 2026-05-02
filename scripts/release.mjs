@@ -1,30 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { readFile, writeFile } from "node:fs/promises"
 
-type ReleaseType =
-  | "major"
-  | "minor"
-  | "patch"
-  | "fix"
-  | "premajor"
-  | "preminor"
-  | "prepatch"
-  | "prerelease"
-
-type Options = {
-  dryRun: boolean
-  skipChecks: boolean
-  preid: string
-  targetBranch: string
-}
-
-type PackageJson = {
-  name: string
-  version: string
-  [key: string]: unknown
-}
-
-const releaseTypes = new Set<ReleaseType>([
+const releaseTypes = new Set([
   "major",
   "minor",
   "patch",
@@ -37,12 +14,12 @@ const releaseTypes = new Set<ReleaseType>([
 
 const args = process.argv.slice(2)
 
-main().catch((error: unknown) => {
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exit(1)
 })
 
-async function main(): Promise<void> {
+async function main() {
   const { releaseType, options } = parseArgs(args)
   const releaseBranch = "dev"
   const currentBranch = getCurrentBranch()
@@ -56,13 +33,13 @@ async function main(): Promise<void> {
   assertCleanWorkingTree()
 
   if (!options.skipChecks) {
-    run("bun", ["run", "lint"])
-    run("bun", ["run", "typecheck"])
-    run("bun", ["run", "test"])
+    run("npm", ["run", "lint"])
+    run("npm", ["run", "typecheck"])
+    run("npm", ["run", "test"])
   }
 
   const originalPackageJson = await readFile("package.json", "utf8")
-  const packageJson = JSON.parse(originalPackageJson) as PackageJson
+  const packageJson = JSON.parse(originalPackageJson)
   const previousVersion = packageJson.version
   const nextVersion = bumpVersion(previousVersion, releaseType, options.preid)
   packageJson.version = nextVersion
@@ -73,7 +50,7 @@ async function main(): Promise<void> {
     await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, "utf8")
     console.log(`${packageJson.name}: ${previousVersion} -> ${nextVersion}`)
 
-    run("bun", ["run", "build"])
+    run("npm", ["run", "build"])
 
     if (options.dryRun) {
       await restorePackageJson(originalPackageJson)
@@ -106,7 +83,7 @@ async function main(): Promise<void> {
   }
 }
 
-function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; options: Options } {
+function parseArgs(argv) {
   const [rawReleaseType, ...rawOptions] = argv
 
   if (!rawReleaseType || rawReleaseType === "-h" || rawReleaseType === "--help") {
@@ -114,11 +91,11 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
     process.exit(rawReleaseType ? 0 : 1)
   }
 
-  if (!releaseTypes.has(rawReleaseType as ReleaseType)) {
+  if (!releaseTypes.has(rawReleaseType)) {
     throw new Error(`Unknown release type: ${rawReleaseType}`)
   }
 
-  const options: Options = {
+  const options = {
     dryRun: false,
     skipChecks: false,
     preid: "next",
@@ -156,12 +133,12 @@ function parseArgs(argv: string[]): { releaseType: Exclude<ReleaseType, "fix">; 
   const releaseType = rawReleaseType === "fix" ? "patch" : rawReleaseType
 
   return {
-    releaseType: releaseType as Exclude<ReleaseType, "fix">,
+    releaseType,
     options,
   }
 }
 
-function readOptionValue(options: string[], index: number, name: string): string {
+function readOptionValue(options, index, name) {
   const value = options[index + 1]
   if (!value || value.startsWith("--")) {
     throw new Error(`${name} requires a value`)
@@ -169,15 +146,11 @@ function readOptionValue(options: string[], index: number, name: string): string
   return value
 }
 
-async function restorePackageJson(originalPackageJson: string): Promise<void> {
+async function restorePackageJson(originalPackageJson) {
   await writeFile("package.json", originalPackageJson, "utf8")
 }
 
-async function rollbackPackageJson(
-  originalPackageJson: string,
-  previousVersion: string,
-  restage: boolean,
-): Promise<void> {
+async function rollbackPackageJson(originalPackageJson, previousVersion, restage) {
   await restorePackageJson(originalPackageJson)
   if (restage) {
     run("git", ["add", "package.json"])
@@ -185,11 +158,7 @@ async function rollbackPackageJson(
   console.error(`Restored package version to ${previousVersion}.`)
 }
 
-function bumpVersion(
-  version: string,
-  releaseType: Exclude<ReleaseType, "fix">,
-  preid: string,
-): string {
+function bumpVersion(version, releaseType, preid) {
   const parsed = parseVersion(version)
 
   if (releaseType === "major") {
@@ -231,12 +200,7 @@ function bumpVersion(
   return `${parsed.major}.${parsed.minor}.${parsed.patch}-${nextPrerelease}`
 }
 
-function parseVersion(version: string): {
-  major: number
-  minor: number
-  patch: number
-  prerelease?: string
-} {
+function parseVersion(version) {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/)
   if (!match) {
     throw new Error(`Unsupported package version: ${version}`)
@@ -250,7 +214,7 @@ function parseVersion(version: string): {
   }
 }
 
-function assertCleanWorkingTree(): void {
+function assertCleanWorkingTree() {
   const result = spawnSync("git", ["status", "--porcelain"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -265,11 +229,11 @@ function assertCleanWorkingTree(): void {
   }
 }
 
-function getCurrentBranch(): string {
+function getCurrentBranch() {
   return readGit(["branch", "--show-current"]) || "HEAD"
 }
 
-function checkoutBranch(branch: string): void {
+function checkoutBranch(branch) {
   if (branchExists(branch)) {
     run("git", ["checkout", branch])
     return
@@ -283,21 +247,15 @@ function checkoutBranch(branch: string): void {
   throw new Error(`Branch not found: ${branch}`)
 }
 
-function pullBranch(branch: string): void {
-  if (remoteBranchExists(branch)) {
-    run("git", ["pull", "--ff-only", "origin", branch])
-  }
-}
-
-function branchExists(branch: string): boolean {
+function branchExists(branch) {
   return gitSucceeds(["rev-parse", "--verify", `refs/heads/${branch}`])
 }
 
-function remoteBranchExists(branch: string): boolean {
+function remoteBranchExists(branch) {
   return gitSucceeds(["rev-parse", "--verify", `refs/remotes/origin/${branch}`])
 }
 
-function readGit(args: string[]): string {
+function readGit(args) {
   const result = spawnSync("git", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -311,7 +269,7 @@ function readGit(args: string[]): string {
   return result.stdout.trim()
 }
 
-function gitSucceeds(args: string[]): boolean {
+function gitSucceeds(args) {
   const result = spawnSync("git", args, {
     stdio: "ignore",
     shell: false,
@@ -320,7 +278,7 @@ function gitSucceeds(args: string[]): boolean {
   return result.status === 0
 }
 
-function run(command: string, args: string[]): void {
+function run(command, args) {
   const result = spawnSync(command, args, {
     stdio: "inherit",
     shell: false,
@@ -331,9 +289,9 @@ function run(command: string, args: string[]): void {
   }
 }
 
-function printHelp(): void {
+function printHelp() {
   console.log(`Usage:
-  bun run release <major|minor|patch|fix|premajor|preminor|prepatch|prerelease> [options]
+  npm run release -- <major|minor|patch|fix|premajor|preminor|prepatch|prerelease> [options]
 
 Options:
   --dry-run          Validate the version bump and build without committing or merging.
@@ -343,9 +301,9 @@ Options:
                      Branch that triggers publishing. Defaults to main.
 
 Examples:
-  bun run release fix
-  bun run release minor
-  bun run release preminor --preid beta
-  bun run release patch --dry-run
+  npm run release -- fix
+  npm run release -- minor
+  npm run release -- preminor --preid beta
+  npm run release -- patch --dry-run
 `)
 }
