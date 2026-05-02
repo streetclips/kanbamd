@@ -1,5 +1,5 @@
-export { Kanbamd } from "#src/Kanbamd"
-export * from "#src/errors"
+export { Kanbamd } from "./Kanbamd.js"
+export * from "./errors.js"
 export type {
   BaseFrontmatter,
   Card,
@@ -13,4 +13,4 @@ export type {
   SearchCardsOptions,
   StorageKind,
   UpdateCardInput,
-} from "#src/types"
+} from "./types.js"

@@ -5,7 +5,7 @@ import {
   ColumnNotFoundError,
   DuplicateCardError,
   InvalidStorageConfigurationError,
-} from "#src/errors"
+} from "./errors.js"
 import {
   createSlug,
   parseCardFrontmatter,
@@ -17,8 +17,8 @@ import {
   validateExtraFrontmatter,
   validateTags,
   validateTitle,
-} from "#src/helpers"
-import { FilesystemStorage, MemoryStorage, type StorageAdapter } from "#src/storage"
+} from "./helpers.js"
+import { FilesystemStorage, MemoryStorage, type StorageAdapter } from "./storage.js"
 import type {
   Card,
   CardFrontmatter,
@@ -29,7 +29,7 @@ import type {
   ListCardsOptions,
   SearchCardsOptions,
   UpdateCardInput,
-} from "#src/types"
+} from "./types.js"
 
 const defaultOrderStep = 1
 

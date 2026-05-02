@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { InvalidFrontmatterError, Kanbamd } from "#src/index"
+import { InvalidFrontmatterError, Kanbamd } from "../src/index.js"
 
 type ProjectFields = {
   priority?: "low" | "medium" | "high"

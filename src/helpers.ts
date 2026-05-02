@@ -1,7 +1,7 @@
 import matter from "gray-matter"
 import slugify from "slugify"
-import { CardNotFoundError, InvalidFrontmatterError } from "#src/errors"
-import type { BaseFrontmatter, CardFrontmatter, ExtraFrontmatter } from "#src/types"
+import { CardNotFoundError, InvalidFrontmatterError } from "./errors.js"
+import type { BaseFrontmatter, CardFrontmatter, ExtraFrontmatter } from "./types.js"
 
 const reservedFrontmatterKeys = new Set(["title", "tags", "order"])
 
