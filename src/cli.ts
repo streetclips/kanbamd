@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { ExitPromptError } from "@inquirer/core"
 import { confirm, input, select } from "@inquirer/prompts"
@@ -523,6 +524,8 @@ program
     }),
   )
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/^\.\//, ""))) {
+const scriptPath = fileURLToPath(import.meta.url)
+const isMain = process.argv[1] && realpathSync(process.argv[1]) === scriptPath
+if (isMain) {
   program.parse()
 }
