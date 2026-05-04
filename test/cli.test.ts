@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { cardChoice, detectColumns, findConfigPath } from "../src/cli.js"
-import type { Card } from "../src/types.js"
+import type { Card } from "../src"
+import { cardChoice, detectColumns, findConfigPath, getExtraFrontmatter } from "../src/cli.js"
 
 function makeCard(overrides: Partial<Card> = {}): Card {
   return {
@@ -41,6 +41,37 @@ describe("cardChoice", () => {
 
     expect(result.name).not.toContain("#bug")
     expect(result.name).not.toContain("#ui")
+  })
+})
+
+describe("getExtraFrontmatter", () => {
+  it("returns only non-reserved frontmatter keys", () => {
+    const card = makeCard({
+      frontmatter: {
+        title: "Test",
+        tags: [],
+        order: 1,
+        priority: "high",
+        assignee: "alice",
+        estimate: 5,
+        labels: ["frontend", "devops"],
+      },
+    })
+    const extra = getExtraFrontmatter(card)
+    expect(extra).toEqual({
+      priority: "high",
+      assignee: "alice",
+      estimate: 5,
+      labels: ["frontend", "devops"],
+    })
+  })
+
+  it("returns empty object when there are no extra fields", () => {
+    const card = makeCard({
+      frontmatter: { title: "Only Base", tags: ["a"], order: 2 },
+    })
+    const extra = getExtraFrontmatter(card)
+    expect(extra).toEqual({})
   })
 })
 

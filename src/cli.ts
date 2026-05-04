@@ -63,7 +63,7 @@ export async function detectColumns(dir: string): Promise<string[]> {
   }
 }
 
-function getExtraFrontmatter(card: Card): Record<string, unknown> {
+export function getExtraFrontmatter(card: Card): Record<string, unknown> {
   const extra: Record<string, unknown> = {}
   for (const key of Object.keys(card.frontmatter)) {
     if (key !== "title" && key !== "tags" && key !== "order") {
