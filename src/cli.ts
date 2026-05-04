@@ -21,7 +21,7 @@ type Config = {
   columns: string[]
 }
 
-async function findConfigPath(startDir: string): Promise<string | null> {
+export async function findConfigPath(startDir: string): Promise<string | null> {
   let dir = startDir
   while (true) {
     const p = path.join(dir, CONFIG_FILE)
@@ -36,7 +36,7 @@ async function findConfigPath(startDir: string): Promise<string | null> {
   }
 }
 
-async function detectColumns(dir: string): Promise<string[]> {
+export async function detectColumns(dir: string): Promise<string[]> {
   try {
     const entries = await readdir(dir, { withFileTypes: true })
     return entries
@@ -129,7 +129,7 @@ function printCardDetail(card: Card): void {
   console.log()
 }
 
-function cardChoice(card: Card): { name: string; value: Card } {
+export function cardChoice(card: Card): { name: string; value: Card } {
   const tags =
     card.frontmatter.tags.length > 0
       ? ` ${card.frontmatter.tags.map((t) => chalk.yellow(`#${t}`)).join(" ")}`
@@ -160,6 +160,8 @@ const program = new Command()
   .version(version)
   .option("--root <path>", "board root directory")
   .option("--columns <cols>", "comma-separated column names")
+
+export { program }
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
@@ -521,4 +523,6 @@ program
     }),
   )
 
-program.parse()
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/^\.\//, ""))) {
+  program.parse()
+}
