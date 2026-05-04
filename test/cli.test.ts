@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest"
 import type { Card } from "../src"
 import { cardChoice, detectColumns, findConfigPath, getExtraFrontmatter } from "../src/cli.js"
 
-function makeCard(overrides: Partial<Card> = {}): Card {
+// biome-ignore lint/suspicious/noExplicitAny: test purpose
+function makeCard(overrides: Partial<Card<any>> = {}): Card {
   return {
     id: "test-card",
     fileName: "test-card.md",
