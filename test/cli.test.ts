@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import type { Card } from "../src/types.js"
 import {
   cardChoice,
   detectColumns,
@@ -10,6 +9,7 @@ import {
   getExtraFrontmatter,
   targetPath,
 } from "../src/cli.js"
+import type { Card } from "../src/types.js"
 
 // biome-ignore lint/suspicious/noExplicitAny: test purpose
 function makeCard(overrides: Partial<Card<any>> = {}): Card {
