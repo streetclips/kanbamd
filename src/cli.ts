@@ -6,7 +6,7 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { ExitPromptError } from "@inquirer/core"
-import { confirm, input, select } from "@inquirer/prompts"
+import { checkbox, confirm, input, number, select } from "@inquirer/prompts"
 import chalk from "chalk"
 import { Command } from "commander"
 import { Kanbamd } from "./index.js"
@@ -17,9 +17,23 @@ const { version } = _require("../package.json") as { version: string }
 
 const CONFIG_FILE = ".kanbamd.json"
 
+type FieldConfig =
+  | { name: string; type: "text"; default?: string; required?: boolean }
+  | { name: string; type: "select"; options: string[]; default?: string; required?: boolean }
+  | { name: string; type: "multiselect"; options: string[]; default?: string[]; required?: boolean }
+  | {
+      name: string
+      type: "number"
+      min?: number
+      max?: number
+      default?: number
+      required?: boolean
+    }
+
 type Config = {
   root: string
   columns: string[]
+  fields?: FieldConfig[]
 }
 
 export async function findConfigPath(startDir: string): Promise<string | null> {
@@ -46,6 +60,79 @@ export async function detectColumns(dir: string): Promise<string[]> {
       .sort()
   } catch {
     return []
+  }
+}
+
+function getExtraFrontmatter(card: Card): Record<string, unknown> {
+  const extra: Record<string, unknown> = {}
+  for (const key of Object.keys(card.frontmatter)) {
+    if (key !== "title" && key !== "tags" && key !== "order") {
+      extra[key] = (card.frontmatter as Record<string, unknown>)[key]
+    }
+  }
+  return extra
+}
+
+async function promptField(field: FieldConfig): Promise<{ key: string; value: unknown } | null> {
+  const label = chalk.dim(field.name)
+  switch (field.type) {
+    case "text": {
+      const value = await input({
+        message: field.required ? `${label} (required):` : `${label}:`,
+        default: field.default,
+      })
+      if (field.required && !value.trim()) {
+        console.error(chalk.red(`Field "${field.name}" is required.`))
+        return null
+      }
+      return { key: field.name, value: value || undefined }
+    }
+    case "select":
+      return {
+        key: field.name,
+        value: await select({
+          message: `${label}:`,
+          choices: field.options.map((o) => ({ name: o, value: o })),
+          ...(field.default ? { default: field.default } : {}),
+        }),
+      }
+    case "multiselect": {
+      const values = await checkbox({
+        message: `${label}:`,
+        choices: field.options.map((o) => ({
+          name: o,
+          value: o,
+          checked: field.default?.includes(o),
+        })),
+      })
+      return { key: field.name, value: values.length > 0 ? values : undefined }
+    }
+    case "number": {
+      const value = await number({
+        message: field.required ? `${label} (required):` : `${label}:`,
+        ...(field.default !== undefined ? { default: field.default } : {}),
+        validate: (v) => {
+          if (v === undefined) {
+            return field.required ? "Required" : true
+          }
+          if (typeof v !== "number") {
+            return "Must be a number"
+          }
+          if (field.min !== undefined && v < field.min) {
+            return `Min: ${field.min}`
+          }
+          if (field.max !== undefined && v > field.max) {
+            return `Max: ${field.max}`
+          }
+          return true
+        },
+      })
+      if (field.required && value === undefined) {
+        console.error(chalk.red(`Field "${field.name}" is required.`))
+        return null
+      }
+      return { key: field.name, value }
+    }
   }
 }
 
@@ -119,6 +206,11 @@ function printCardDetail(card: Card): void {
       chalk.dim("  Tags:    ") + card.frontmatter.tags.map((t) => chalk.yellow(`#${t}`)).join(" "),
     )
   }
+  const extra = getExtraFrontmatter(card)
+  for (const [key, value] of Object.entries(extra)) {
+    const display = Array.isArray(value) ? value.join(", ") : String(value ?? "")
+    console.log(chalk.dim(`  ${key.charAt(0).toUpperCase() + key.slice(1)}:`.padEnd(9)) + display)
+  }
   console.log(chalk.dim("  Created: ") + card.createdAt.toLocaleDateString())
   console.log(chalk.dim("  Updated: ") + card.updatedAt.toLocaleDateString())
   if (card.body.trim()) {
@@ -171,7 +263,8 @@ program
   .description("Initialize a new Kanban board in the current directory")
   .option("--root <path>", "board root (default: current directory)")
   .option("--columns <cols>", "comma-separated column names (default: todo,doing,done)")
-  .action(async (opts: { root?: string; columns?: string }) =>
+  .option("--no-fields", "skip interactive field configuration")
+  .action(async (opts: { root?: string; columns?: string; fields?: boolean }) =>
     run(async () => {
       const root = path.resolve(opts.root ?? process.cwd())
       const columnsRaw = opts.columns ?? "todo,doing,done"
@@ -184,6 +277,122 @@ program
       const relativeRoot = path.relative(process.cwd(), root) || "."
       const configData: Config = { root: relativeRoot, columns }
 
+      const fieldConfigs: FieldConfig[] = []
+      if (opts.fields !== false) {
+        console.log(chalk.bold("\nLet's configure extra frontmatter fields for your cards.\n"))
+        let configuring = true
+
+        while (configuring) {
+          const add = await confirm({
+            message: "Add a custom field?",
+            default: false,
+          })
+          if (!add) {
+            configuring = false
+            break
+          }
+
+          const name = await input({
+            message: "Field name (e.g. priority, assignee, estimate):",
+            validate: (v) => (v.trim().length > 0 ? true : "Field name is required"),
+          })
+
+          const type = await select<"text" | "select" | "multiselect" | "number">({
+            message: "Field type:",
+            choices: [
+              { name: "text", value: "text" },
+              { name: "select (single choice)", value: "select" },
+              { name: "multiselect (multiple choices)", value: "multiselect" },
+              { name: "number", value: "number" },
+            ],
+          })
+
+          const required = await confirm({
+            message: "Is this field required?",
+            default: false,
+          })
+
+          let field: FieldConfig | null = null
+
+          switch (type) {
+            case "text": {
+              const def = await input({
+                message: "Default value (optional):",
+              })
+              field = {
+                name: name.trim(),
+                type: "text",
+                required,
+                ...(def.trim() ? { default: def.trim() } : {}),
+              }
+              break
+            }
+            case "select":
+            case "multiselect": {
+              const optionsRaw = await input({
+                message: "Options (comma-separated):",
+                validate: (v) => (v.trim().length > 0 ? true : "At least one option is required"),
+              })
+              const options = optionsRaw
+                .split(",")
+                .map((o) => o.trim())
+                .filter(Boolean)
+              if (type === "select") {
+                field = {
+                  name: name.trim(),
+                  type: "select",
+                  options,
+                  required,
+                }
+              } else {
+                field = {
+                  name: name.trim(),
+                  type: "multiselect",
+                  options,
+                  required,
+                }
+              }
+              break
+            }
+            case "number": {
+              const minRaw = await input({
+                message: "Min value (optional):",
+                validate: (v) =>
+                  !v.trim() || /^-?\d*(\.\d+)?$/.test(v.trim()) ? true : "Must be a number",
+              })
+              const maxRaw = await input({
+                message: "Max value (optional):",
+                validate: (v) =>
+                  !v.trim() || /^-?\d*(\.\d+)?$/.test(v.trim()) ? true : "Must be a number",
+              })
+              const defRaw = await number({
+                message: "Default value (optional, press enter to skip):",
+                step: "any" as never,
+              })
+              field = {
+                name: name.trim(),
+                type: "number",
+                required,
+                ...(minRaw.trim() ? { min: Number.parseFloat(minRaw.trim()) } : {}),
+                ...(maxRaw.trim() ? { max: Number.parseFloat(maxRaw.trim()) } : {}),
+                ...(defRaw !== undefined ? { default: defRaw } : {}),
+              }
+              break
+            }
+          }
+
+          if (field) {
+            fieldConfigs.push(field)
+            console.log(chalk.green(`✓ Added field: ${chalk.cyan(field.name)} (${field.type})`))
+          }
+          console.log()
+        }
+
+        if (fieldConfigs.length > 0) {
+          configData.fields = fieldConfigs
+        }
+      }
+
       await writeFile(configPath, `${JSON.stringify(configData, null, 2)}\n`, "utf-8")
       console.log(chalk.green(`✓ Config written to ${CONFIG_FILE}`))
 
@@ -195,6 +404,9 @@ program
       console.log(chalk.bold("\nBoard initialized!"))
       console.log(`  Root:    ${chalk.cyan(relativeRoot)}`)
       console.log(`  Columns: ${chalk.cyan(columns.join(", "))}`)
+      if (fieldConfigs.length > 0) {
+        console.log(`  Fields:  ${chalk.cyan(fieldConfigs.map((f) => f.name).join(", "))}`)
+      }
       console.log()
     }),
   )
@@ -291,6 +503,21 @@ program
             .filter(Boolean)
         : []
 
+      const extraFields: Record<string, unknown> = {}
+      if (config.fields && config.fields.length > 0) {
+        console.log()
+        for (const field of config.fields) {
+          const result = await promptField(field)
+          if (result === null) {
+            console.log(chalk.dim("Cancelled."))
+            process.exit(1)
+          }
+          if (result.value !== undefined) {
+            extraFields[result.key] = result.value
+          }
+        }
+      }
+
       const orderRaw = await input({
         message: "Order (leave empty to place last):",
         validate: (v) =>
@@ -301,6 +528,7 @@ program
         title: title.trim(),
         body: bodyRaw.trim(),
         tags,
+        ...(Object.keys(extraFields).length > 0 ? { frontmatter: extraFields as never } : {}),
       })
 
       if (orderRaw.trim()) {
