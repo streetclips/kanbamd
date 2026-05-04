@@ -3,7 +3,13 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import type { Card } from "../src"
-import { cardChoice, detectColumns, findConfigPath, getExtraFrontmatter } from "../src/cli.js"
+import {
+  cardChoice,
+  detectColumns,
+  findConfigPath,
+  getExtraFrontmatter,
+  targetPath,
+} from "../src/cli.js"
 
 // biome-ignore lint/suspicious/noExplicitAny: test purpose
 function makeCard(overrides: Partial<Card<any>> = {}): Card {
@@ -154,5 +160,33 @@ describe("detectColumns", () => {
 
     const columns = await detectColumns(dir)
     expect(columns).toEqual(["todo"])
+  })
+})
+
+describe("targetPath", () => {
+  it("returns user-level Claude Code path", () => {
+    const result = targetPath("claude-code", "user")
+    expect(result).toContain(".claude/skills")
+  })
+
+  it("returns project-level Claude Code path", () => {
+    const result = targetPath("claude-code", "project")
+    expect(result).toContain(".claude/skills")
+    expect(result).toBe(path.join(process.cwd(), ".claude/skills"))
+  })
+
+  it("returns user-level Codex path", () => {
+    const result = targetPath("codex", "user")
+    expect(result).toContain(".agents/skills")
+  })
+
+  it("returns project-level Codex path", () => {
+    const result = targetPath("codex", "project")
+    expect(result).toBe(path.join(process.cwd(), ".agents/skills"))
+  })
+
+  it("user-level path starts with home directory", () => {
+    const result = targetPath("claude-code", "user")
+    expect(result.startsWith(os.homedir())).toBe(true)
   })
 })

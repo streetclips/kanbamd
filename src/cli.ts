@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, realpathSync } from "node:fs"
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import os from "node:os"
 import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
@@ -245,6 +246,37 @@ async function run(fn: () => Promise<void>): Promise<void> {
     console.error(chalk.red("Error:"), msg)
     process.exit(1)
   }
+}
+
+type Target = "claude-code" | "codex"
+
+const TARGET_LABELS: Record<Target, string> = {
+  "claude-code": "Claude Code",
+  codex: "Codex CLI",
+}
+
+const TARGET_SKILLS_DIR: Record<Target, string> = {
+  "claude-code": ".claude/skills",
+  codex: ".agents/skills",
+}
+
+export function getSkillsDir(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "skills")
+}
+
+export async function listSkills(): Promise<string[]> {
+  const skillsDir = getSkillsDir()
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true })
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name)
+  } catch {
+    return []
+  }
+}
+
+export function targetPath(target: Target, scope: "user" | "project"): string {
+  const base = scope === "user" ? os.homedir() : process.cwd()
+  return path.join(base, TARGET_SKILLS_DIR[target])
 }
 
 const program = new Command()
@@ -749,6 +781,60 @@ program
         printCardLine(card)
       }
       console.log()
+    }),
+  )
+
+// ── install ───────────────────────────────────────────────────────────────────
+
+program
+  .command("install")
+  .description("Install a built-in agent skill for Claude Code or Codex CLI")
+  .action(async () =>
+    run(async () => {
+      const skillNames = await listSkills()
+      if (skillNames.length === 0) {
+        console.error(chalk.red("No built-in skills found."))
+        process.exit(1)
+      }
+
+      const skillName =
+        skillNames.length === 1
+          ? skillNames[0]
+          : await select({
+              message: "Select skill to install:",
+              choices: skillNames.map((n) => ({ name: chalk.cyan(n), value: n })),
+            })
+
+      const targets = await checkbox<Target>({
+        message: "Select target(s):",
+        choices: [
+          { name: "Claude Code", value: "claude-code" },
+          { name: "Codex CLI", value: "codex" },
+        ],
+        validate: (selected) => (selected.length > 0 ? true : "Select at least one target"),
+      })
+
+      const scope = await select<"user" | "project">({
+        message: "Select scope:",
+        choices: [
+          { name: "User-level (global)", value: "user" },
+          { name: "Project-level (current directory)", value: "project" },
+        ],
+      })
+
+      const skillsDir = getSkillsDir()
+      const sourceDir = path.join(skillsDir, skillName)
+
+      for (const target of targets) {
+        const dest = path.join(targetPath(target, scope), skillName)
+        await mkdir(dest, { recursive: true })
+        await cp(sourceDir, dest, { recursive: true })
+        console.log(
+          chalk.green(
+            `✓ Installed ${chalk.cyan(skillName)} for ${TARGET_LABELS[target]} to ${dest}`,
+          ),
+        )
+      }
     }),
   )
 

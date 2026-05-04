@@ -18,7 +18,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && cp -R skills dist/skills",
     "format": "biome format . --write",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
